@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&display=swap');
+
+:root {
+  --bg-main: #F7F8FA; /* Matches --bg2 from theme */
+  --bg-card: #FFFFFF;
+  --bg-hover: #EEF0F4;
+  --primary: #1a1a1a;
+  --text-main: #1a1a1a;
+  --text-muted: #555b66;
+  --border-color: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.15);
+  
+  --accent: #3D8B4D; /* Algoleap Green */
+  --accent-hover: #2d6e3a;
+  
+  --status-running: #d97706; /* Amber */
+  --status-completed: #16a34a; /* Green */
+  --status-idle: #8a8f9a; /* Text3 gray */
+  --status-error: #dc2626; /* Red */
+  
+  --font-d: 'Syne', sans-serif;
+  --font-b: 'DM Sans', sans-serif;
+  --font-m: 'DM Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-b);
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-d);
+  letter-spacing: -0.02em;
+}

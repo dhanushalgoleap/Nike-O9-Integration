@@ -1,0 +1,54 @@
+node_modules/
+.env
+__pycache__/
+venv/
+*.pyc
+.ipynb_checkpoints/
+demo.db
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Build outputs
+dist/
+build/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.swp
+
+# Documentation and setup folders
+Architecture/
+Docs/
+Implementation/
+New Synthetic Data/
+POC Setup/
+
+# Unnecessary root files
+context.md
+get_schema.py
+inspect_columns.py
+Nike O9 Documentation.html
+nike_algoleap_v2.html
+organize_workspace.ps1
+plan.md
+skills.md
+sync_css.py
