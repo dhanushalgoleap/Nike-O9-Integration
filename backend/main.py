@@ -1,12 +1,14 @@
 import os
 import json
 import asyncio
-from fastapi import FastAPI
+from typing import Optional
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from agents.graph import build_orchestrator_graph
 from data_loader import NikeDataLoader
+from scenario_problems import build_problem_context, problem_context_prompt_block
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,7 +18,7 @@ app = FastAPI(title="Nike Agentic Engine (Algoleap)")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -24,6 +26,17 @@ app.add_middleware(
 # Global Data Integrator
 loader = NikeDataLoader()
 graph = build_orchestrator_graph()
+
+
+@app.get("/api/scenario-problem")
+def get_scenario_problem(scenario: str):
+    """Canonical problem brief + anchors + data footnote for the workbench UI."""
+    loader.load_all()
+    ctx = build_problem_context(scenario, loader)
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Unknown scenario")
+    return ctx
+
 
 @app.get("/api/orchestrate")
 async def stream_orchestration(scenario: str):
@@ -39,13 +52,16 @@ async def stream_orchestration(scenario: str):
         
         sample_str = json.dumps(skus, indent=2)
 
+        problem_ctx = build_problem_context(scenario, loader)
+
         input_data = {
             "trigger_source": scenario,
             "datasets_path": loader.data_dir,
             "active_dataset_sample": sample_str,
             "anomaly_variance_volume": 0,
             "generated_options": [],
-            "execution_logs": []
+            "execution_logs": [],
+            "problem_context": problem_ctx,
         }
         
         for output in graph.stream(input_data, stream_mode="updates"):
@@ -104,6 +120,7 @@ def get_dashboard_metrics():
 
 class RecRequest(BaseModel):
     selected_option: dict
+    scenario_id: Optional[str] = None
 
 @app.post("/api/recommendation")
 async def generate_recommendation(payload: RecRequest):
@@ -123,12 +140,20 @@ async def generate_recommendation(payload: RecRequest):
     - Baseline Monthly Revenue: ${summary['revenue']:,.0f}
     - Estimated Monthly Holding Cost: ${summary['holding_cost']:,.0f}
     - Total Volume Tracked: {summary['volume']:,} units
-    - Forecast Accuracy (MAPE): {summary['mape']}%
+    - MAPE: {summary['mape']}%
     
     TOP 5 IMPACTED PRODUCTS BY VARIANCE:
     """
     for s in top_skus:
         data_context += f"- {s['sku']}: Variance={s['variance']}, Actual={s['actual']}, Forecast={s['forecast']}\n"
+
+    loader.load_all()
+    problem_ctx = (
+        build_problem_context(payload.scenario_id, loader)
+        if payload.scenario_id
+        else None
+    )
+    problem_block = problem_context_prompt_block(problem_ctx)
 
     # ── Structured AI Prompt ──
     system_prompt = """You are a Senior Nike Supply Chain Executive. Generate a high-fidelity roadmap.
@@ -138,12 +163,13 @@ async def generate_recommendation(payload: RecRequest):
     2. ACCURACY: If the context says Revenue is $X, the 'present' value for Revenue MUST be $X.
     3. LANGUAGE: Use professional Nike-branded enterprise English.
     4. CALCULATIONS: For 'predicted' metrics, estimate a realistic improvement (e.g. 5-10% reduction in Variance) based on the cost of the strategy.
+    5. PROBLEM ALIGNMENT: When an OPERATING PROBLEM block is provided, the executive summary and roadmap MUST explicitly reflect that scenario's anchor SKU, region, demand signal, and plan failure — not a generic supply chain story.
 
     JSON SCHEMA:
     {
       "summary": "One paragraph executive summary.",
       "metrics": [
-        {"label": "Forecast Accuracy (MAPE)", "present": "X%", "predicted": "Y%", "delta": "-Z%", "status": "good|bad"},
+        {"label": "MAPE", "present": "X%", "predicted": "Y%", "delta": "-Z%", "status": "good|bad"},
         {"label": "Inventory Holding Cost", "present": "$X", "predicted": "$Y", "delta": "-$Z", "status": "good"},
         {"label": "Revenue Impact", "present": "$X", "predicted": "$Y", "delta": "+$Z", "status": "good"}
       ],
@@ -152,7 +178,9 @@ async def generate_recommendation(payload: RecRequest):
       "risks": [{"risk": "Potential Issue", "mitigation": "Bypass trigger"}]
     }"""
 
-    human_prompt = f"""STRATEGY: {title} | COST: {cost}
+    human_prompt = f"""{problem_block}
+
+    STRATEGY: {title} | COST: {cost}
     CONTEXT INFO:
     {data_context}
     
@@ -168,7 +196,7 @@ async def generate_recommendation(payload: RecRequest):
             "recommendation": {
                 "summary": f"Autonomous implementation of {title} initiated. System error in roadmap generation, but core metrics verified.",
                 "metrics": [
-                    {"label": "Forecast Accuracy (MAPE)", "present": f"{summary['mape']}%", "predicted": f"{summary['mape']-2}%", "delta": "-2%", "status": "good"},
+                    {"label": "MAPE", "present": f"{summary['mape']}%", "predicted": f"{summary['mape']-2}%", "delta": "-2%", "status": "good"},
                     {"label": "Inventory Holding Cost", "present": f"${summary['holding_cost']:,.0f}", "predicted": f"${summary['holding_cost']*0.9:,.0f}", "delta": "-10%", "status": "good"}
                 ],
                 "affected_skus": [{"sku": s["sku"], "variance": str(s["variance"]), "impact": "High"} for s in top_skus[:3]],

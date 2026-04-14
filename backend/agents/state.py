@@ -14,6 +14,8 @@ class AgentState(TypedDict):
     active_dataset_sample: str           # Sample of the Excel data passed to LLMs to avoid hallucinations
     anomaly_variance_volume: int         # Live-calculated math metric piped across agents dynamically
     data_summary: Optional[Dict[str, Any]] # Structured metrics for LLM context (MAPE, Top SKUs, etc)
+    # Canonical scenario problem (UI + Scenario Agent + recommendation prompts)
+    problem_context: Optional[Dict[str, Any]]
     
     # Generated Outputs
     generated_options: List[Dict[str, Any]] # e.g. [{title: '', cost: '', service_level: '', details: ''}]

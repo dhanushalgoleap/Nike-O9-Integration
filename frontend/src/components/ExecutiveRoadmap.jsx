@@ -1,24 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 
 // Specialized high-speed typewriter
 const ExecutiveTypewriter = ({ text, onComplete, isActive }) => {
   const [displayedText, setDisplayedText] = useState('');
+  const onCompleteRef = useRef(onComplete);
+  onCompleteRef.current = onComplete;
 
   useEffect(() => {
     if (!isActive) return;
-    
-    let index = 0;
+
+    const safe = text ?? '';
     setDisplayedText('');
 
+    let i = 0;
     const interval = setInterval(() => {
-      if (index < text.length) {
-        setDisplayedText(prev => prev + text.charAt(index));
-        index += 1;
-      } else {
+      if (i >= safe.length) {
         clearInterval(interval);
-        if (onComplete) onComplete();
+        onCompleteRef.current?.();
+        return;
       }
-    }, 15); // EXACTLY 15ms per character
+      // Capture index for this tick — do not read `i` inside setState; React may run the
+      // updater after later ticks have advanced `i`, which skipped every 2nd character.
+      const charIndex = i;
+      i += 1;
+      setDisplayedText((prev) => prev + safe.charAt(charIndex));
+    }, 15);
 
     return () => clearInterval(interval);
   }, [text, isActive]);
@@ -27,7 +33,7 @@ const ExecutiveTypewriter = ({ text, onComplete, isActive }) => {
   return <span>{displayedText}</span>;
 }
 
-export default function ExecutiveRoadmap({ recommendation, isProcessing, onApprove }) {
+export default function ExecutiveRoadmap({ recommendation, isProcessing, onApprove, approveDisabled = false, instantDisplay = false }) {
   const [revealStage, setRevealStage] = useState(0); 
   // 0: Summary typing
   // 1: Metrics & SKUs revealed
@@ -36,16 +42,25 @@ export default function ExecutiveRoadmap({ recommendation, isProcessing, onAppro
   const [activeRoadmapStep, setActiveRoadmapStep] = useState(-1);
   const [activeRiskItem, setActiveRiskItem] = useState(-1);
 
-  // Reset logic when recommendation changes
-  useEffect(() => {
-    setRevealStage(0);
-    setActiveRoadmapStep(-1);
-    setActiveRiskItem(-1);
-  }, [recommendation]);
+  // Reset logic when recommendation changes (live: typewriter; restored snapshot: show everything immediately)
+  useLayoutEffect(() => {
+    if (!recommendation) return;
+    if (instantDisplay) {
+      const roadmaps = recommendation.roadmap || [];
+      const risks = recommendation.risks || [];
+      setRevealStage(1);
+      setActiveRoadmapStep(roadmaps.length > 0 ? roadmaps.length - 1 : -1);
+      setActiveRiskItem(risks.length > 0 ? risks.length - 1 : -1);
+    } else {
+      setRevealStage(0);
+      setActiveRoadmapStep(-1);
+      setActiveRiskItem(-1);
+    }
+  }, [recommendation, instantDisplay]);
 
   if (isProcessing) {
     return (
-      <div className="ctx-box" style={{ animation: 'pulse 2s infinite' }}>
+      <div className="ctx-box exec-processing-banner" style={{ animation: 'pulse 2s infinite' }}>
         Synthesizing high-fidelity executive roadmap and ROI projections...
       </div>
     );
@@ -57,35 +72,55 @@ export default function ExecutiveRoadmap({ recommendation, isProcessing, onAppro
   const roadmapCount = (data.roadmap || []).length;
   const risksCount = (data.risks || []).length;
 
+  const timelineReady =
+    revealStage >= 1 &&
+    (activeRiskItem === risksCount - 1 ||
+      (risksCount === 0 && roadmapCount > 0 && activeRoadmapStep === roadmapCount - 1) ||
+      (roadmapCount === 0 && risksCount === 0));
+
+  // instantDisplay is only used for restored snapshots — no O9 approval on historical view
+  const canSubmitApprove = timelineReady && !approveDisabled && !instantDisplay;
+  const approveButtonMuted = approveDisabled || instantDisplay;
+
   return (
     <div className="exec-container">
       {/* 1. DECISION SUMMARY - WITH 15ms TYPING */}
       <div className="summary-banner">
-        <ExecutiveTypewriter 
-          text={data.summary} 
-          isActive={true}
-          onComplete={() => {
-              setRevealStage(1);
-              if (roadmapCount > 0) setActiveRoadmapStep(0);
-              else if (risksCount > 0) setActiveRiskItem(0);
-          }} 
-        />
+        {instantDisplay ? (
+          data.summary
+        ) : (
+          <ExecutiveTypewriter 
+            text={data.summary} 
+            isActive={true}
+            onComplete={() => {
+                setRevealStage(1);
+                if (roadmapCount > 0) setActiveRoadmapStep(0);
+                else if (risksCount > 0) setActiveRiskItem(0);
+            }} 
+          />
+        )}
       </div>
 
-      {revealStage >= 1 && (
-        <div style={{ animation: 'fadeIn 0.5s ease forwards', display: 'flex', flexDirection: 'column', gap: '24px', marginTop: '20px' }}>
-          
+      {(instantDisplay || revealStage >= 1) && (
+        <div
+          className="exec-body"
+          style={{ animation: instantDisplay ? 'none' : 'fadeIn 0.5s ease forwards' }}
+        >
           {/* 2. METRIC IMPACT */}
           <div className="metrics-grid">
             {(data.metrics || []).map((m, i) => (
               <div key={i} className="metric-pill">
-                <div className="mpl-header">{m.label}</div>
-                <div className="mpl-values">
-                  <div className="mpl-present">Present: {m.present}</div>
-                  <div className="mpl-predicted">{m.predicted}</div>
+                <div className="mpl-header">
+                  {m.label === 'Forecast Accuracy (MAPE)' ? 'MAPE' : m.label}
                 </div>
-                <div className={`mpl-delta ${m.status === 'good' ? 'good' : 'bad'}`}>
-                  {m.delta}
+                <div className="metric-pill-row">
+                  <div className="mpl-values">
+                    <div className="mpl-present">Present: {m.present}</div>
+                    <div className="mpl-predicted">{m.predicted}</div>
+                  </div>
+                  <div className={`mpl-delta ${m.status === 'good' ? 'good' : 'bad'}`}>
+                    {m.delta}
+                  </div>
                 </div>
               </div>
             ))}
@@ -94,22 +129,22 @@ export default function ExecutiveRoadmap({ recommendation, isProcessing, onAppro
           {/* 3. AFFECTED SKUs */}
           {data.affected_skus && data.affected_skus.length > 0 && (
             <div className="sku-impact-list">
-              <div className="mpl-header">Impacted Product Matrix</div>
-              <div style={{ background: '#fff', borderRadius: '8px', border: '1px solid var(--border)', overflow: 'hidden' }}>
-                <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
-                  <thead style={{ background: '#f8fafc' }}>
+              <div className="exec-section-title">Impacted product matrix</div>
+              <div className="exec-sku-wrap">
+                <table className="exec-sku-table">
+                  <thead>
                     <tr>
-                      <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>SKU</th>
-                      <th style={{ padding: '8px', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Variance</th>
-                      <th style={{ padding: '8px', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>Priority</th>
+                      <th>SKU</th>
+                      <th>Variance</th>
+                      <th>Priority</th>
                     </tr>
                   </thead>
                   <tbody>
                     {data.affected_skus.map((s, i) => (
                       <tr key={i}>
-                        <td style={{ padding: '8px', borderBottom: '1px solid var(--border)' }}>{s.sku}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>{s.variance}</td>
-                        <td style={{ padding: '8px', textAlign: 'right', borderBottom: '1px solid var(--border)' }}>
+                        <td>{s.sku}</td>
+                        <td>{s.variance}</td>
+                        <td>
                           <span style={{ color: s.impact === 'High' ? 'var(--red)' : 'var(--amber)', fontWeight: 700 }}>{s.impact}</span>
                         </td>
                       </tr>
@@ -123,7 +158,7 @@ export default function ExecutiveRoadmap({ recommendation, isProcessing, onAppro
           {/* 4. EXECUTION ROADMAP - SEQUENTIAL TYPING */}
           {roadmapCount > 0 && (
             <div className="roadmap-section">
-              <div className="mpl-header">Implementation Roadmap</div>
+              <div className="exec-section-title">Implementation roadmap</div>
               <div className="timeline-list">
                 {data.roadmap.map((step, i) => (
                   <div 
@@ -138,17 +173,21 @@ export default function ExecutiveRoadmap({ recommendation, isProcessing, onAppro
                     <div className="step-number">{i + 1}</div>
                     <div className="step-content">
                       <div className="step-title">
-                        <span style={{ fontWeight: 800, color: 'var(--accent)' }}>{step.team}:</span>&nbsp;
-                        <ExecutiveTypewriter 
-                          text={step.action}
-                          isActive={i === activeRoadmapStep}
-                          onComplete={() => {
-                              if (i < roadmapCount - 1) setActiveRoadmapStep(i + 1);
-                              else if (risksCount > 0) setActiveRiskItem(0);
-                          }}
-                        />
+                        <span style={{ fontWeight: 800, color: 'var(--accent)' }}>{step.team}:</span>{' '}
+                        {instantDisplay ? (
+                          step.action
+                        ) : (
+                          <ExecutiveTypewriter 
+                            text={step.action}
+                            isActive={i === activeRoadmapStep}
+                            onComplete={() => {
+                                if (i < roadmapCount - 1) setActiveRoadmapStep(i + 1);
+                                else if (risksCount > 0) setActiveRiskItem(0);
+                            }}
+                          />
+                        )}
                       </div>
-                      <div className="step-desc" style={{ opacity: 0.7 }}>Cost: {step.cost}</div>
+                      <div className="step-desc">Cost: {step.cost}</div>
                     </div>
                     <div className="time-tag">{step.time}</div>
                   </div>
@@ -160,34 +199,33 @@ export default function ExecutiveRoadmap({ recommendation, isProcessing, onAppro
           {/* 5. RISK ASSESSMENT - SEQUENTIAL TYPING */}
           {risksCount > 0 && (
             <div className="risk-section">
-              <div className="mpl-header">Risk Guardrails</div>
+              <div className="exec-section-title">Risk guardrails</div>
               {data.risks.map((r, i) => (
                 <div 
                   key={i} 
-                  style={{ 
-                      background: '#fff7ed', 
-                      border: '1px solid #ffedd5', 
-                      padding: '10px', 
-                      borderRadius: '6px', 
-                      marginBottom: '8px', 
-                      fontSize: '11px',
+                  className="exec-risk-card"
+                  style={{
                       opacity: i <= activeRiskItem ? 1 : 0,
                       display: i <= activeRiskItem ? 'block' : 'none',
                       transition: 'opacity 0.3s'
                   }}
                 >
-                  <span style={{ fontWeight: 700, color: '#9a3412', display: 'block', marginBottom: '2px' }}>
-                    ➤ RISK:&nbsp;
-                    <ExecutiveTypewriter 
-                      text={r.risk}
-                      isActive={i === activeRiskItem}
-                      onComplete={() => {
-                          if (i < risksCount - 1) setActiveRiskItem(i + 1);
-                      }}
-                    />
+                  <span className="exec-risk-label">
+                    Risk ·{' '}
+                    {instantDisplay ? (
+                      r.risk
+                    ) : (
+                      <ExecutiveTypewriter 
+                        text={r.risk}
+                        isActive={i === activeRiskItem}
+                        onComplete={() => {
+                            if (i < risksCount - 1) setActiveRiskItem(i + 1);
+                        }}
+                      />
+                    )}
                   </span>
                   {i <= activeRiskItem ? (
-                      <span style={{ color: '#c2410c' }}>MITIGATION: {r.mitigation}</span>
+                      <span className="exec-risk-mitigation">Mitigation · {r.mitigation}</span>
                   ) : null}
                 </div>
               ))}
@@ -195,23 +233,26 @@ export default function ExecutiveRoadmap({ recommendation, isProcessing, onAppro
           )}
 
           {/* FOOTER ACTION */}
-          <button 
-            onClick={() => onApprove && onApprove()}
-            style={{
-              width: '100%',
-              padding: '12px',
-              background: 'var(--accent)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontWeight: 700,
-              cursor: 'pointer',
-              marginTop: '10px',
-              transition: 'all 0.2s ease',
-              opacity: (activeRiskItem === risksCount - 1 || (risksCount === 0 && activeRoadmapStep === roadmapCount - 1)) ? 1 : 0.3
+          <button
+            type="button"
+            className={`exec-approve-btn ${
+              approveButtonMuted
+                ? 'exec-approve-btn--muted'
+                : !timelineReady
+                  ? 'exec-approve-btn--waiting'
+                  : 'exec-approve-btn--active'
+            }`}
+            disabled={!canSubmitApprove}
+            onClick={() => {
+              if (!canSubmitApprove || !onApprove) return;
+              onApprove();
             }}
           >
-            Approve and Synchronize to O9 →
+            {instantDisplay
+              ? 'Approve available only after a new scenario run'
+              : approveDisabled
+                ? 'Approved — synchronized to O9'
+                : 'Approve and Synchronize to O9 →'}
           </button>
         </div>
       )}

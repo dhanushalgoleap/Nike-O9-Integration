@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from .state import AgentState
 from data_loader import NikeDataLoader
+from scenario_problems import problem_context_prompt_block
 
 # Global Data Integrator
 loader = NikeDataLoader()
@@ -202,6 +203,8 @@ def scenario_agent(state: AgentState):
     
     variance = state.get('anomaly_variance_volume', 4200)
     ctx = state.get('trigger_source', 'trend-surge')
+    problem_ctx = state.get("problem_context")
+    problem_block = problem_context_prompt_block(problem_ctx)
     
     # Get Top Impacted SKUs to provide context to LLM
     impacted_skus = loader.get_top_impacted_skus(limit=3)
@@ -213,9 +216,12 @@ def scenario_agent(state: AgentState):
     system_prompt = f"""You are a Senior Nike Multi-Echelon Supply Chain Orchestrator. 
     Analyze the provided 'Scenario Context' and '{variance:,}' unit impact.
     
+    {problem_block}
+
     MOST IMPACTED PRODUCTS: {sku_context}
     
     TASK: Exhaustively brainstorm professional mitigation strategies across the 6 pillars. 
+    Every strategy title and action MUST tie back to the OPERATING PROBLEM above (anchor SKU, region, demand signal, plan failure) while still referencing impacted CSV SKUs where relevant.
     
     STRATEGIC PILLARS (Categorize every strategy into one):
     1. DEMAND: Market-side management (suppression, loyalty prioritize).
@@ -229,6 +235,7 @@ def scenario_agent(state: AgentState):
     - SPELLING: Precision is mandatory. Zero typos allowed. Double-check terms like EMEA, APAC, SNKRS, fulfillment, and throughput. 
     - PROFESSIONALISM: Use senior-level enterprise US English.
     - NO placeholders: Use real values for all financial fields.
+    - PROBLEM CONSISTENCY: Do not invent a different problem statement; ground narratives in the OPERATING PROBLEM block when present.
 
     JSON SCHEMA PER STRATEGY:
     - 'title': Strategic name (Nike Branded/Professional).

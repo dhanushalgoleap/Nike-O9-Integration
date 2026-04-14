@@ -14,7 +14,7 @@ function App() {
       <Navbar currentRoute={currentRoute} onRouteChange={setCurrentRoute} />
       
       {currentRoute === '/' ? (
-        <Dashboard onRouteChange={setCurrentRoute} />
+        <Dashboard />
       ) : (
         <PlannerWorkbench />
       )}

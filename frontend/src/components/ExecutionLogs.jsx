@@ -13,20 +13,21 @@ const TypewriterText = ({ text, onComplete, isActive }) => {
       return;  // Don't fire onComplete for non-active items
     }
 
-    let index = 0;
+    let i = 0;
     setDisplayedText('');
 
     const interval = setInterval(() => {
-      if (index < text.length) {
-        setDisplayedText(prev => prev + text.charAt(index));
-        index += 1;
-      } else {
+      if (i >= text.length) {
         clearInterval(interval);
         if (!completedRef.current) {
           completedRef.current = true;
           if (onComplete) onComplete();
         }
+        return;
       }
+      const charIndex = i;
+      i += 1;
+      setDisplayedText((prev) => prev + text.charAt(charIndex));
     }, 10);
 
     return () => {
@@ -38,12 +39,18 @@ const TypewriterText = ({ text, onComplete, isActive }) => {
 }
 
 // Single log line — renders decision + reason with sequential typewriter
-const LogLine = ({ log, isActive, onComplete }) => {
-  const [phase, setPhase] = useState(isActive ? 0 : 2);
+const LogLine = ({ log, isActive, onComplete, instantPlayback }) => {
+  const [phase, setPhase] = useState(instantPlayback || !isActive ? 2 : 0);
   // phase 0 = typing decision, phase 1 = typing reason, phase 2 = done
+
+  useEffect(() => {
+    if (instantPlayback) setPhase(2);
+  }, [instantPlayback]);
 
   const p = log.trace_payload;
   if (!p) return null;
+
+  const typingActive = isActive && !instantPlayback;
 
   const stageColor = {
     'START': '#3b82f6',
@@ -79,7 +86,7 @@ const LogLine = ({ log, isActive, onComplete }) => {
           ) : (
             <TypewriterText
               text={p.decision}
-              isActive={isActive && phase === 0}
+              isActive={typingActive && phase === 0}
               onComplete={() => setPhase(1)}
             />
           )}
@@ -94,7 +101,7 @@ const LogLine = ({ log, isActive, onComplete }) => {
             ) : (
               <TypewriterText
                 text={`→ ${p.reason_summary}`}
-                isActive={isActive && phase === 1}
+                isActive={typingActive && phase === 1}
                 onComplete={() => {
                   setPhase(2);
                   if (onComplete) onComplete();
@@ -118,7 +125,7 @@ const LogLine = ({ log, isActive, onComplete }) => {
 }
 
 
-export default function ExecutionLogs({ activeScenario, logs, selectedAgent, onTypingComplete, isSystemTyping }) {
+export default function ExecutionLogs({ activeScenario, logs, selectedAgent, onTypingComplete, isSystemTyping, instantPlayback = false }) {
   const scrollRef = useRef(null);
 
   // Auto-scroll to bottom
@@ -194,19 +201,21 @@ export default function ExecutionLogs({ activeScenario, logs, selectedAgent, onT
       {displayLogs.map((log, index) => {
         // Find this log's position in the FULL array to determine if it's the active one
         const globalIndex = logs.indexOf(log);
-        const isThisActive = globalIndex === lastLogIndex && isSystemTyping;
+        const isThisActive =
+          !instantPlayback && globalIndex === lastLogIndex && isSystemTyping;
 
         return (
           <LogLine
             key={`${log.node}-${globalIndex}`}
             log={log}
             isActive={isThisActive}
+            instantPlayback={instantPlayback}
             onComplete={() => onTypingComplete(log.node)}
           />
         );
       })}
 
-      {!selectedAgent && isSystemTyping && (
+      {!selectedAgent && isSystemTyping && !instantPlayback && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', marginLeft: '6px' }}>
           <div style={{ width: '8px', height: '16px', backgroundColor: 'var(--status-completed)', animation: 'blink 1s step-end infinite' }}></div>
         </div>
